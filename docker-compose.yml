@@ -1,0 +1,21 @@
+version: '2'
+services:
+  wtail:
+    image: wtail:latest
+    volumes: 
+      - ".:/app/wtail"
+    environment:
+      DEBUG: "*"
+    ports:
+      - "1337:1337"
+      - "8888:8888"
+
+  wtail-forwarder:
+    image: wtail:latest
+    command: "/app/wtail/watch.sh"
+    volumes: 
+      - ".:/app/wtail"
+     #- "../other/log:/logs/other"
+    links:
+      - wtail
+

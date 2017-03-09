@@ -9,16 +9,18 @@
 
 'use strict'
 
-const dgram = require('dgram')
-const split = require('split')
-const chrono = require('chrono-node')
-const JSON5 = require('json5')
-const yargs = require('yargs')
-const map = require('through2-map')
-const stripAnsi = require('strip-ansi')
-const moniker_ = require('moniker').choose
+const debug          = require('debug')('wtail:client')
+const dgram          = require('dgram')
+const net            = require('net');
+const split          = require('split')
+const chrono         = require('chrono-node')
+const JSON5          = require('json5')
+const yargs          = require('yargs')
+const map            = require('through2-map')
+const stripAnsi      = require('strip-ansi')
+const moniker_       = require('moniker').choose
 const updateNotifier = require('update-notifier')
-const pkg = require('../package')
+const pkg            = require('../package')
 
 /*!
  * inform the user of updates
@@ -43,13 +45,13 @@ let argv = yargs
   .option('host', {
     alias: 'h',
     type: 'string',
-    default: '127.0.0.1',
+    default: '0.0.0.0',
     describe: 'The server host'
   })
   .option('port', {
     alias: 'p',
     type: 'string',
-    default: 9999,
+    default: 1337,
     describe: 'The server port'
   })
   .option('id', {
@@ -79,6 +81,9 @@ let argv = yargs
   .strict()
   .argv
 
+
+debug('arguments', argv)
+
 /*!
  * setup pipes
  */
@@ -97,14 +102,15 @@ if (!argv.mute) {
 /*!
  * initialize socket
  */
-let isClosed = false
+let isClosed  = false
 let isSending = 0
-let socket = dgram.createSocket('udp4')
-let baseMessage = { id: argv.id }
 
-socket.bind(function () {
-  socket.setBroadcast(true)
-})
+var socket = new net.Socket();
+socket.connect(argv.port, argv.host, function() {
+  debug('connected');
+});
+
+let baseMessage = { id: argv.id }
 
 /*!
  * broadcast lines to browser
@@ -137,14 +143,10 @@ process.stdin
 
     // prepare binary message
     let buffer = new Buffer(JSON.stringify(baseMessage))
-
     // set semaphore
-    isSending ++
-
-    socket.send(buffer, 0, buffer.length, argv.port, argv.host, function () {
-      isSending --
-      if (isClosed && !isSending) socket.close()
-    })
+    isSending++;
+    socket.write(buffer);
+    isSending--;
   })
 
 /*!
@@ -152,5 +154,8 @@ process.stdin
  */
 process.stdin.on('end', function () {
   isClosed = true
-  if (!isSending) socket.close()
+  if (!isSending) {
+    socket.end()
+    debug('closing socket')
+  }
 })

@@ -1,0 +1,7 @@
+FROM dekz/wtail:latest
+
+ADD watch.sh /app/wtail
+LABEL io.whalebrew.config.ports '[]'
+LABEL io.whalebrew.config.environment '["WTAIL_HOST", "WTAIL_PORT", "WTAIL_PREFIX"]'
+LABEL io.whalebrew.config.networks '["host"]'
+ENTRYPOINT ["/app/wtail/watch.sh"]

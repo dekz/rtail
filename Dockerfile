@@ -11,7 +11,7 @@ RUN apk add --no-cache --virtual build-deps git \
     && rm -rf /var/cache/apk/*
 
 USER node
-CMD /app/wtail/cli/rtail-server.js
-
 EXPOSE 8888
 EXPOSE 1337
+ENTRYPOINT ["/app/wtail/cli/rtail-server.js"]
+LABEL io.whalebrew.config.ports '["8888:8888", "1337:1337"]'

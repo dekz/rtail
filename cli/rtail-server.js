@@ -9,16 +9,17 @@
 
 'use strict'
 
-const dgram = require('dgram')
-const app = require('express')()
-const serve = require('express').static
-const http = require('http').Server(app)
-const io = require('socket.io')()
-const yargs = require('yargs')
-const debug = require('debug')('rtail:server')
-const webapp = require('./lib/webapp')
+const dgram          = require('dgram')
+const app            = require('express')()
+const serve          = require('express').static
+const http           = require('http').Server(app)
+const io             = require('socket.io')()
+const yargs          = require('yargs')
+const debug          = require('debug')('wtail:server')
+const webapp         = require('./lib/webapp')
 const updateNotifier = require('update-notifier')
-const pkg = require('../package')
+const pkg            = require('../package')
+const syslogParse    = require('syslog-parse')
 
 /*!
  * inform the user of updates
@@ -32,25 +33,25 @@ updateNotifier({
  * parsing argv
  */
 let argv = yargs
-  .usage('Usage: rtail-server [OPTIONS]')
-  .example('rtail-server --web-port 8080', 'Use custom HTTP port')
-  .example('rtail-server --udp-port 8080', 'Use custom UDP port')
-  .example('rtail-server --web-version stable', 'Always uses latest stable webapp')
-  .example('rtail-server --web-version unstable', 'Always uses latest develop webapp')
-  .example('rtail-server --web-version 0.1.3', 'Use webapp v0.1.3')
-  .option('udp-host', {
-    alias: 'uh',
-    default: '127.0.0.1',
-    describe: 'The listening UDP hostname'
+  .usage('Usage: wtail-server [OPTIONS]')
+  .example('wtail-server --web-port 8080', 'Use custom HTTP port')
+  .example('wtail-server --udp-port 8080', 'Use custom TCP port')
+  .example('wtail-server --web-version stable', 'Always uses latest stable webapp')
+  .example('wtail-server --web-version unstable', 'Always uses latest develop webapp')
+  .example('wtail-server --web-version 0.1.3', 'Use webapp v0.1.3')
+  .option('tcp-host', {
+    alias: 'th',
+    default: '0.0.0.0',
+    describe: 'The listening TCP hostname'
   })
-  .option('udp-port', {
-    alias: 'up',
-    default: 9999,
-    describe: 'The listening UDP port'
+  .option('tcp-port', {
+    alias: 'tp',
+    default: 1337,
+    describe: 'The listening TCP port'
   })
   .option('web-host', {
     alias: 'wh',
-    default: '127.0.0.1',
+    default: '0.0.0.0',
     describe: 'The listening HTTP hostname'
   })
   .option('web-port', {
@@ -73,34 +74,48 @@ let argv = yargs
  * UDP sockets setup
  */
 let streams = {}
-let socket = dgram.createSocket('udp4')
+var net = require('net');
+var socket = new net.Socket();
 
-socket.on('message', function (data, remote) {
-  // try to decode JSON
-  try { data = JSON.parse(data) }
-  catch (err) { return debug('invalid data sent') }
+function dataReceived(data) {
+  let parsed = undefined;
+  try   { parsed = JSON.parse(data) }
+  catch (err) { debug(data.toString()); debug('not json data') }
 
-  if (!streams[data.id]) {
-    streams[data.id] = []
+  if (parsed == undefined) {
+    try {
+      let syslog = syslogParse(data.toString());
+      parsed           = {}
+      parsed.timestamp = syslog.time
+      parsed.id        = syslog.process
+      parsed.content   = syslog.message
+    }
+    catch (err) { debug(err); debug(data.toString()); return debug('invalid data') }
+  }
+
+  if (!streams[parsed.id]) {
+    streams[parsed.id] = []
     io.sockets.emit('streams', Object.keys(streams))
   }
 
   let message = {
-    timestamp: data.timestamp,
-    streamid: data.id,
-    host: remote.address,
-    port: remote.port,
-    content: data.content,
-    type: typeof data.content
+    timestamp: parsed.timestamp,
+    streamid:  parsed.id,
+    content:   parsed.content,
+    type:      typeof parsed.content
   }
 
   // limit backlog to 100 lines
-  streams[data.id].length >= 100 && streams[data.id].shift()
-  streams[data.id].push(message)
+  streams[parsed.id].length >= 100 && streams[parsed.id].shift()
+  streams[parsed.id].push(message)
 
-  debug(JSON.stringify(message))
-  io.sockets.to(data.id).emit('line', message)
-})
+  io.sockets.to(parsed.id).emit('line', message)
+}
+
+var socket = net.createServer(function(socket) {
+  socket.on('data', dataReceived)
+  socket.pipe(socket);
+});
 
 /*!
  * socket.io
@@ -108,7 +123,9 @@ socket.on('message', function (data, remote) {
 io.on('connection', function (socket) {
   socket.emit('streams', Object.keys(streams))
   socket.on('select stream', function (stream) {
-    socket.leave(socket.rooms[0])
+    Object.keys(socket.rooms).forEach(function(key) {
+      socket.leave(socket.rooms[key])
+    })
     if (!stream) return
     socket.join(stream)
     socket.emit('backlog', streams[stream])
@@ -137,8 +154,8 @@ if (!argv.webVersion) {
  * listen!
  */
 io.attach(http, { serveClient: false })
-socket.bind(argv.udpPort, argv.udpHost)
+socket.listen(argv.tcpPort, argv.tcpHost);
 http.listen(argv.webPort, argv.webHost)
 
-debug('UDP  server listening: %s:%s', argv.udpHost, argv.udpPort)
+debug('TCP  server listening: %s:%s', argv.tcpHost, argv.tcpPort)
 debug('HTTP server listening: http://%s:%s', argv.webHost, argv.webPort)

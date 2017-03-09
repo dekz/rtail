@@ -82,6 +82,7 @@ let argv = yargs
   .argv
 
 
+process.stdin.setEncoding('utf8');
 debug('arguments', argv)
 
 /*!
@@ -115,39 +116,59 @@ let baseMessage = { id: argv.id }
 /*!
  * broadcast lines to browser
  */
+
+function handleLine(line) {
+  line = line.toString();
+  debug("received data", line)
+  let timestamp = null
+
+  try {
+    // try to JSON parse
+    line = JSON5.parse(line)
+  } catch (err) {
+    // look for timestamps if not an object
+    timestamp = argv.parseDate ? chrono.parse(line)[0] : null
+  }
+
+  if (timestamp) {
+    // escape for regexp and remove from line
+    timestamp.text = timestamp.text.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')
+    line = line.replace(new RegExp(' *[^ ]?' + timestamp.text + '[^ ]? *'), '')
+    // use timestamp as line timestamp
+    baseMessage.timestamp = Date.parse(timestamp.start.date())
+  } else {
+    baseMessage.timestamp = Date.now()
+  }
+
+  // update default message
+  baseMessage.content = line
+
+  // prepare binary message
+  let buffer = new Buffer(JSON.stringify(baseMessage))
+  // set semaphore
+  debug("sending");
+  isSending++;
+  socket.write(buffer);
+  socket.write("\n");
+  debug("wrote");
+  isSending--;
+}
+
 process.stdin
   .pipe(split(null, null, { trailing: false }))
-  .on('data', function (line) {
-    let timestamp = null
+  .on('data', handleLine)
+//process.stdin.on('data', handleLine)
 
-    try {
-      // try to JSON parse
-      line = JSON5.parse(line)
-    } catch (err) {
-      // look for timestamps if not an object
-      timestamp = argv.parseDate ? chrono.parse(line)[0] : null
-    }
+//process.stdin.on('readable', () => {
+//  var chunk = process.stdin.read();
+//  if (chunk !== null) {
+//    process.stdout.write(`data: ${chunk}`);
+//  }
+//});
 
-    if (timestamp) {
-      // escape for regexp and remove from line
-      timestamp.text = timestamp.text.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')
-      line = line.replace(new RegExp(' *[^ ]?' + timestamp.text + '[^ ]? *'), '')
-      // use timestamp as line timestamp
-      baseMessage.timestamp = Date.parse(timestamp.start.date())
-    } else {
-      baseMessage.timestamp = Date.now()
-    }
-
-    // update default message
-    baseMessage.content = line
-
-    // prepare binary message
-    let buffer = new Buffer(JSON.stringify(baseMessage))
-    // set semaphore
-    isSending++;
-    socket.write(buffer);
-    isSending--;
-  })
+process.stdin.on('end', () => {
+  process.stdout.write('end');
+});
 
 /*!
  * drain pipe and exit

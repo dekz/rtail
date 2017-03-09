@@ -10,6 +10,7 @@
 'use strict'
 
 const dgram          = require('dgram')
+const split          = require('split')
 const app            = require('express')()
 const serve          = require('express').static
 const http           = require('http').Server(app)
@@ -80,7 +81,7 @@ var socket = new net.Socket();
 function dataReceived(data) {
   let parsed = undefined;
   try   { parsed = JSON.parse(data) }
-  catch (err) { debug(data.toString()); debug('not json data') }
+  catch (err) { debug(err); debug(data.toString()); debug('not json data') }
 
   if (parsed == undefined) {
     try {
@@ -91,6 +92,13 @@ function dataReceived(data) {
       parsed.content   = syslog.message
     }
     catch (err) { debug(err); debug(data.toString()); return debug('invalid data') }
+  }
+
+  if (parsed.id == undefined) {
+    debug("Error parsing message");
+    debug(data.toString());
+    parsed.id = 'ERROR'
+    parsed.content = data.toString();
   }
 
   if (!streams[parsed.id]) {
@@ -107,14 +115,30 @@ function dataReceived(data) {
 
   // limit backlog to 100 lines
   streams[parsed.id].length >= 100 && streams[parsed.id].shift()
+  debug("pushing message", message)
   streams[parsed.id].push(message)
-
+  
   io.sockets.to(parsed.id).emit('line', message)
 }
 
+function handleData() {
+  var buffer = '';
+  return function(data) {
+    var prev = 0, next;
+    data = data.toString('utf8'); // assuming utf8 data...
+    while ((next = data.indexOf('\n', prev)) > -1) {
+      buffer += data.substring(prev, next);
+  
+      dataReceived(buffer);
+      buffer = '';
+      prev = next + 1;
+    }
+    buffer += data.substring(prev);
+  }
+}
+
 var socket = net.createServer(function(socket) {
-  socket.on('data', dataReceived)
-  socket.pipe(socket);
+  socket.on('data', handleData());
 });
 
 /*!

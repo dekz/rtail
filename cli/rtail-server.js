@@ -72,11 +72,12 @@ let argv = yargs
   .argv
 
 /*!
- * UDP sockets setup
+ * Sockets setup
  */
-let streams = {}
-var net = require('net');
+let streams = { }
+let net = require('net');
 var socket = new net.Socket();
+let udpSocket = dgram.createSocket('udp4')
 
 function dataReceived(data) {
   let parsed = undefined;
@@ -114,7 +115,7 @@ function dataReceived(data) {
   }
 
   // limit backlog to 100 lines
-  streams[parsed.id].length >= 100 && streams[parsed.id].shift()
+  streams[parsed.id].length >= 1000 && streams[parsed.id].shift()
   debug("pushing message", message)
   streams[parsed.id].push(message)
   
@@ -137,9 +138,12 @@ function handleData() {
   }
 }
 
-var socket = net.createServer(function(socket) {
+var socket = net.createServer((socket) => {
   socket.on('data', handleData());
 });
+
+udpSocket.bind(() => { udpSocket.setBroadcast(true) })
+udpSocket.on('message', dataReceived);
 
 /*!
  * socket.io
@@ -180,6 +184,7 @@ if (!argv.webVersion) {
 io.attach(http, { serveClient: false })
 socket.listen(argv.tcpPort, argv.tcpHost);
 http.listen(argv.webPort, argv.webHost)
+//udpSocket.bind(9999, argv.tcpHost)
 
 debug('TCP  server listening: %s:%s', argv.tcpHost, argv.tcpPort)
 debug('HTTP server listening: http://%s:%s', argv.webHost, argv.webPort)

@@ -103,12 +103,14 @@ if (!argv.mute) {
 /*!
  * initialize socket
  */
-let isClosed  = false
-let isSending = 0
+let isClosed    = false
+let isSending   = 0
+let isConnected = false
 
 var socket = new net.Socket();
 socket.connect(argv.port, argv.host, function() {
   debug('connected');
+  isConnected = true;
 });
 
 let baseMessage = { id: argv.id }
@@ -119,6 +121,7 @@ let baseMessage = { id: argv.id }
 
 function handleLine(line) {
   line = line.toString();
+  debug(isConnected);
   debug("received data", line)
   let timestamp = null
 
